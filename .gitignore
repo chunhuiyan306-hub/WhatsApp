@@ -1,0 +1,35 @@
+# dependencies
+/node_modules
+/.pnp
+.pnp.js
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# database
+*.db
+*.db-journal
+customers.json
+customers-raw.json
+/prisma/*.db
+/prisma/*.db-journal
+
+# env
+.env
+.env*.local
+
+public/uploads/*
+!public/uploads/.gitkeep
+*.pem
+.wa-browser-data/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts

@@ -1,0 +1,179 @@
+// WhatsApp 客户管理看板数据模型
+// 运行: npx prisma migrate dev --name init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// 客户：一个 WhatsApp 联系人
+model Customer {
+  id           String   @id @default(cuid())
+  name         String?
+  phone        String?  @unique // E.164 规范化号码，如 +966500000000
+  rawPhone     String? // 原始显示号码
+  country      String? // 中文国家名，如 沙特阿拉伯
+  countryCode  String? // ISO 国家码，如 SA
+  callingCode  String? // 国际区号，如 966
+  language     String? // 主要语言，如 ar / en / zh
+  waChatId     String?  @unique // WhatsApp Web 中的会话标识（昵称或号码）
+  status       String   @default("new") // new 新客 / contacted 已联系 / following 跟进中 / closed 已关闭
+  summary      String? // 中文一句话画像
+  notes        String? // 销售/跟单备注
+  firstContact DateTime @default(now())
+  lastContact  DateTime @default(now())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  messages    Message[]
+  inquiries   Inquiry[]
+  enrichments Enrichment[]
+  drafts      ReplyDraft[]
+  tags        TagOnCustomer[]
+}
+
+// 消息：原文 + 中文翻译
+model Message {
+  id           String   @id @default(cuid())
+  customerId   String
+  customer     Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  direction    String // in 客户发来 / out 我方发出
+  originalText String
+  originalLang String? // 自动识别的语言代码
+  translatedZh String? // 中文翻译
+  timestamp    DateTime @default(now()) // 消息在 WhatsApp 上的时间
+  createdAt    DateTime @default(now())
+
+  @@index([customerId])
+}
+
+// 需求：要画册 / 带项目 / 询价 / 其它
+model Inquiry {
+  id         String   @id @default(cuid())
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  type       String // catalog 要画册 / project 带项目 / quote 询价 / other 其它
+  note       String?
+  createdAt  DateTime @default(now())
+
+  @@index([customerId])
+}
+
+// 标签：与 WhatsApp Business label 对应
+model Tag {
+  id        String          @id @default(cuid())
+  name      String          @unique
+  color     String? // 十六进制颜色
+  createdAt DateTime        @default(now())
+  customers TagOnCustomer[]
+}
+
+model TagOnCustomer {
+  customerId String
+  tagId      String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  tag        Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  assignedAt DateTime @default(now())
+  syncedToWa Boolean  @default(false) // 是否已回写到 WhatsApp Web
+
+  @@id([customerId, tagId])
+}
+
+// 背景调查结果
+model Enrichment {
+  id          String   @id @default(cuid())
+  customerId  String
+  customer    Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  linkedinUrl String?
+  company     String?
+  role        String?
+  website     String?
+  source      String? // 信息来源描述
+  confidence  String   @default("low") // low / medium / high
+  verified    Boolean  @default(false) // 是否经人工确认
+  note        String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([customerId])
+}
+
+// 回复草稿：客人语言版 + 中文对照，等待确认后发送
+model ReplyDraft {
+  id          String   @id @default(cuid())
+  customerId  String
+  customer    Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  draftZh     String // 中文版（给你看的）
+  draftTarget String? // 客人语言版（实际要发的）
+  targetLang  String?
+  attachments String? // JSON: [{id,name,url,category}] 随消息一起发的 PDF/资料
+  templateId  String? // 使用的 ReplyTemplate.id
+  status      String   @default("pending")
+  sentAt      DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([customerId])
+}
+
+// 自定义回复话术（按需求类型 + 语言）
+model ReplyTemplate {
+  id             String   @id @default(cuid())
+  name           String // 如「要画册-英文标准」
+  inquiryType    String // catalog / quote / project / other / all
+  targetLang     String   @default("en") // en / ar / zh / all
+  draftTarget    String // 发给客人的话术
+  draftZh        String // 中文对照
+  attachAssetIds String? // JSON: MediaAsset id 数组，生成草稿时自动附带
+  isDefault      Boolean  @default(false)
+  sortOrder      Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([inquiryType, targetLang])
+}
+
+// PDF / 图册 / 报价资料库
+model MediaAsset {
+  id        String   @id @default(cuid())
+  name      String // 显示名
+  category  String // catalog / quote / profile / other
+  fileName  String
+  fileUrl   String // /uploads/... 或 Vercel Blob URL
+  mimeType  String   @default("application/pdf")
+  fileSize  Int?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([category])
+}
+
+// 自动化状态（单例）
+model AutomationState {
+  id              String    @id @default("default")
+  enabled         Boolean   @default(true)
+  scanMode        String    @default("schedule") // schedule 定点 / interval 间隔
+  scanSchedule    String    @default("[\"10:00\",\"15:00\"]") // JSON 数组，本地时间 HH:mm
+  scanIntervalMs  Int       @default(300000)
+  lastScanAt      DateTime?
+  lastScanSlot    String?   // 如 2026-05-31@10:00，防止同一时段重复扫
+  lastScanStatus  String?   // idle / running / success / error
+  lastScanSummary String?
+  updatedAt       DateTime  @updatedAt
+}
+
+// 自动化运行日志
+model AutomationLog {
+  id        String   @id @default(cuid())
+  action    String   // scan / pipeline / send
+  status    String   // success / error / running
+  summary   String?
+  detail    String?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}
