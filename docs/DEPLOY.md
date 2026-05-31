@@ -21,12 +21,21 @@ git push -u origin main
 2. Framework Preset：**Next.js**（自动识别）
 3. 添加 **Postgres 数据库**（推荐 Neon，Vercel Marketplace 一键添加）
 4. 添加 **Blob 存储**（上传 PDF 画册用，Vercel Dashboard → Storage → Blob）
-5. 环境变量：
+5. 环境变量（**缺一不可，否则构建失败 P1012**）：
 
 | 变量 | 说明 |
 |------|------|
-| `DATABASE_URL` | Neon Postgres 连接串（Vercel 集成后自动注入） |
-| `BLOB_READ_WRITE_TOKEN` | Vercel Blob Token（集成后自动注入） |
+| `DATABASE_URL` | Prisma 用；Neon 集成后若只有 `POSTGRES_URL`，构建脚本会自动映射 |
+| `POSTGRES_URL` | Neon 一键集成后自动注入（可代替手动填 DATABASE_URL） |
+| `BLOB_READ_WRITE_TOKEN` | Vercel Blob Token（上传 PDF 用，可选但推荐） |
+
+**操作路径：** Vercel 项目 → **Storage** → **Connect Database** → **Neon** → 勾选关联到 `whats-app` 项目 → 保存后 **Redeploy**。
+
+若已连 Neon 仍报错，到 **Settings → Environment Variables** 手动新增：
+
+- Name: `DATABASE_URL`
+- Value: 复制同页里的 `POSTGRES_URL` 或 `POSTGRES_PRISMA_URL` 的值
+- 勾选 Production、Preview、Development
 
 6. **重要**：仓库已使用 **PostgreSQL**。在 Vercel 添加 **Neon Postgres** 后，`DATABASE_URL` 会自动注入；未配置数据库时构建会在 `prisma migrate deploy` 阶段失败。
 
