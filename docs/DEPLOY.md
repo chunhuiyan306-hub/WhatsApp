@@ -28,16 +28,9 @@ git push -u origin main
 | `DATABASE_URL` | Neon Postgres 连接串（Vercel 集成后自动注入） |
 | `BLOB_READ_WRITE_TOKEN` | Vercel Blob Token（集成后自动注入） |
 
-6. **重要**：Vercel 不能使用 SQLite。部署前将 `prisma/schema.prisma` 中：
+6. **重要**：仓库已使用 **PostgreSQL**。在 Vercel 添加 **Neon Postgres** 后，`DATABASE_URL` 会自动注入；未配置数据库时构建会在 `prisma migrate deploy` 阶段失败。
 
-```prisma
-datasource db {
-  provider = "postgresql"   // 把 sqlite 改成 postgresql
-  url      = env("DATABASE_URL")
-}
-```
-
-7. Build Command（Vercel 项目设置）：
+7. Build Command（Vercel 项目设置，`vercel.json` 已配置）：
 
 ```bash
 npx prisma migrate deploy && npm run build
@@ -57,7 +50,7 @@ DATABASE_URL="postgres://..." npx tsx prisma/seed.ts
 | 话术模板 / 资料库 | ✅ | ✅ 共享 |
 | PDF 存储 | `public/uploads/` | Vercel Blob |
 | WhatsApp 自动扫描 | `npm run auto` | ❌ 需本机 Worker |
-| 数据库 | SQLite（开发） | Postgres（团队共享） |
+| 数据库 | Postgres（Neon 或本地） | Postgres（团队共享） |
 
 ## 4. 本机 Worker 连线上看板
 
