@@ -7,6 +7,7 @@ import { buildAutoEnrichment } from "./enrich";
 import { buildAutoDraft } from "./draft";
 import { translateToZh } from "./translate";
 import { detectLanguage } from "./detect-lang";
+import { inferCustomerStage } from "./stage";
 
 const DEFAULT_COLORS = [
   "#25D366",
@@ -113,11 +114,18 @@ export async function runCustomerPipeline(
     orderBy: { timestamp: "asc" },
   });
 
-  const inTexts = refreshed
-    .filter((m) => m.direction === "in")
+  // 分类/标签/阶段仅基于最近 10 条对话
+  const recentMsgs = refreshed.slice(-10).map((m) => ({
+    direction: m.direction,
+    originalText: m.originalText,
+  }));
+
+  const inTexts = recentMsgs
+    .filter((m) => m.direction !== "out")
     .map((m) => m.originalText);
   const inTextsZh = refreshed
-    .filter((m) => m.direction === "in")
+    .filter((m) => m.direction !== "out")
+    .slice(-10)
     .map((m) => m.translatedZh ?? m.originalText);
 
   const displayName =
@@ -126,8 +134,8 @@ export async function runCustomerPipeline(
     meta.businessName ||
     null;
 
-  // 2) 分类
-  const classify = classifyMessages(inTexts, {
+  // 2) 分类（最近 10 条，含 in/out）
+  const classify = classifyMessages(recentMsgs, {
     isBusinessAccount: meta.isBusinessAccount,
     businessName: meta.businessName,
   });
@@ -160,6 +168,7 @@ export async function runCustomerPipeline(
     highIntent: classify.highIntent,
     skipReason: classify.skipReason,
     sourceHint: meta.sourceHint,
+    messages: recentMsgs,
   });
   result.tagsAdded = await upsertTags(customerId, tagNames);
 
@@ -200,11 +209,21 @@ export async function runCustomerPipeline(
   });
 
   let status = customer.status;
+  let dealStage = customer.dealStage ?? "inquiry";
   if (classify.skipReason === "internal" || classify.skipReason === "competitor") {
     status = "following";
   } else if (classify.skipReason === "non_target_business") {
     status = "following";
   }
+
+  const inferred = inferCustomerStage({
+    messages: recentMsgs,
+    inquiries: classify.inquiries,
+    highIntent: classify.highIntent,
+    skipReason: classify.skipReason,
+  });
+  status = inferred.status;
+  dealStage = inferred.dealStage;
 
   await prisma.customer.update({
     where: { id: customerId },
@@ -213,6 +232,12 @@ export async function runCustomerPipeline(
       language: primaryLang,
       summary,
       status,
+      dealStage,
+      leadSource: meta.sourceHint?.includes("instagram")
+        ? "instagram"
+        : meta.sourceHint?.includes("facebook")
+          ? "facebook"
+          : customer.leadSource ?? "whatsapp",
       notes:
         classify.skipReason === "sync_pending"
           ? "需手机同步查看客户原始消息"

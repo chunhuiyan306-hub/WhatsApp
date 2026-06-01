@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import { ok, fail, parseBody } from "@/lib/api";
 import { analyzePhone } from "@/lib/phone";
 import { runCustomerPipeline, type PipelineMeta } from "@/lib/pipeline";
+import { verifyScannerRequest, isIngestSecretConfigured } from "@/lib/scanner-auth";
 import type { Prisma } from "@prisma/client";
 
 const DEFAULT_COLORS = [
@@ -49,6 +50,8 @@ interface IngestPayload {
   };
   /** 默认 true：ingest 后自动跑翻译/分类/标签/背景/草稿 */
   auto?: boolean;
+  /** 扫描 ingest 时强制写入背景调查（忽略当日已写入） */
+  forceEnrich?: boolean;
   /** WhatsApp 资料页昵称，如 ~Lora Bergiy */
   waProfileName?: string;
   isBusinessAccount?: boolean;
@@ -60,6 +63,10 @@ interface IngestPayload {
 // Agent 扫描一个 WhatsApp 会话后，用一次调用把客户、翻译后的消息、需求、标签、
 // 背景调查与回复草稿一起写入。客户按 phone / waChatId upsert，消息去重。
 export async function POST(req: Request) {
+  if (isIngestSecretConfigured() && !verifyScannerRequest(req)) {
+    return fail("需要有效的 INGEST_SECRET", 403);
+  }
+
   const body = await parseBody<IngestPayload>(req);
   const c = body.customer;
   if (!c || (!c.phone && !c.waChatId && !c.name)) {
@@ -74,6 +81,8 @@ export async function POST(req: Request) {
       OR: [
         info.e164 ? { phone: info.e164 } : undefined,
         c.waChatId ? { waChatId: c.waChatId } : undefined,
+        c.name ? { waChatId: c.name } : undefined,
+        c.name ? { name: c.name } : undefined,
       ].filter(Boolean) as Prisma.CustomerWhereInput[],
     },
   });
@@ -124,7 +133,6 @@ export async function POST(req: Request) {
           customerId: customer.id,
           direction: m.direction ?? "in",
           originalText: m.originalText,
-          timestamp: ts,
         },
       });
       if (dup) continue;
@@ -232,7 +240,9 @@ export async function POST(req: Request) {
       businessName: body.businessName,
       sourceHint: body.sourceHint,
     };
-    pipeline = await runCustomerPipeline(customer.id, meta);
+    pipeline = await runCustomerPipeline(customer.id, meta, {
+      forceEnrich: body.forceEnrich === true,
+    });
     const after = await prisma.customer.findUnique({
       where: { id: customer.id },
       include: {

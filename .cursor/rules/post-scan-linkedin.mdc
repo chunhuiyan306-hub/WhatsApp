@@ -1,0 +1,41 @@
+---
+description: WhatsApp 扫描完成后必须继续 LinkedIn / 公开资料背景调查
+alwaysApply: true
+---
+
+# 扫描后背景调查（LinkedIn 等）
+
+## 固定流程
+
+WhatsApp 扫描 **不是终点**。完整流程为：
+
+1. **扫 WhatsApp** → `scripts/wa-auto-scan.mjs`（最近 25 会话 × 10 条消息）
+2. **Ingest + Pipeline** → 翻译、分类、标签、规则推断背景、草稿
+3. **LinkedIn / 公开资料检索** → `POST /api/research/linkedin`（扫描脚本会自动调用）
+
+## Agent 必须做的事
+
+每当用户说「扫完了」「扫描完成」或触发 `scan-once` / `auto:scan-once` 后：
+
+- 确认 `POST /api/research/linkedin` 已跑（或手动补跑 `{ "customerIds": [...] }`）
+- 对 **未命中 LinkedIn** 或 **confidence=low** 的客户，用 Web 搜索深度调查：
+  - LinkedIn 个人/公司页
+  - 官网、Google Maps、行业名录
+  - WhatsApp 商业资料页信息
+- 结果写入 `POST /api/enrichments`，`verified=false`，必要时 PATCH 客户 `summary` / `companyName`
+- 参考 `scripts/batch-enrich.mjs` 的手工调查格式
+
+## 命令速查
+
+```bash
+npm run hub              # 推荐：看板 + Worker + 启动自动补扫
+npm run auto:scan-once   # 仅扫 WA + LinkedIn
+npm run research:linkedin
+```
+
+详见项目根目录 `AGENTS.md`。
+
+## 禁止
+
+- 不要把 WhatsApp 扫描完成当作任务结束
+- 不要跳过背景调查直接让用户回复客户（除非用户明确要求）

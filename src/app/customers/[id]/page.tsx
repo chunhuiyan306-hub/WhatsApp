@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import type { Customer } from "@/lib/types";
 import { formatDate } from "@/lib/types";
@@ -13,9 +13,12 @@ import {
   looksRtl,
 } from "@/lib/constants";
 import { DraftCard } from "@/components/DraftCard";
+import { CustomerProfileCard } from "@/components/CustomerProfile";
+import { DealStageBadge } from "@/components/Badges";
 
 export default function CustomerDetailPage() {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
   const id = params.id;
   const [c, setC] = useState<Customer | null>(null);
   const [loading, setLoading] = useState(true);
@@ -38,6 +41,19 @@ export default function CustomerDetailPage() {
       body: JSON.stringify(data),
     });
     load();
+  }
+
+  async function deleteCustomer() {
+    const label = c?.name || c?.waChatId || c?.phone || "此客户";
+    if (
+      !window.confirm(
+        `确定删除「${label}」？\n\n将永久删除全部消息、草稿、背景调查，不可恢复。`
+      )
+    ) {
+      return;
+    }
+    await fetch(`/api/customers/${id}`, { method: "DELETE" });
+    router.push("/customers");
   }
 
   if (loading) return <div className="p-10 text-center text-slate-400">加载中…</div>;
@@ -68,6 +84,7 @@ export default function CustomerDetailPage() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <DealStageBadge stage={c.dealStage ?? "inquiry"} />
             <select
               value={c.status}
               onChange={(e) => patchCustomer({ status: e.target.value })}
@@ -80,6 +97,13 @@ export default function CustomerDetailPage() {
               ))}
             </select>
             <StatusBadge status={c.status} />
+            <button
+              type="button"
+              onClick={deleteCustomer}
+              className="rounded-lg border border-red-200 px-3 py-2 text-sm text-red-600 hover:bg-red-50"
+            >
+              删除
+            </button>
           </div>
         </div>
 
@@ -89,6 +113,12 @@ export default function CustomerDetailPage() {
           onSave={(v) => patchCustomer({ summary: v })}
         />
       </div>
+
+      <CustomerProfileCard
+        customer={c}
+        onPatch={patchCustomer}
+        onReload={load}
+      />
 
       <div className="grid gap-5 lg:grid-cols-3">
         {/* 左：聊天时间线 */}
@@ -318,6 +348,9 @@ function TagsCard({
   reload: () => void;
 }) {
   const [name, setName] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editColor, setEditColor] = useState("#64748b");
 
   async function add() {
     if (!name.trim()) return;
@@ -344,27 +377,81 @@ function TagsCard({
     reload();
   }
 
+  async function saveTagEdit(tagId: string) {
+    await fetch(`/api/tags/${tagId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: editName.trim(), color: editColor }),
+    });
+    setEditingId(null);
+    reload();
+  }
+
   return (
-    <Card title="标签（对应 WhatsApp label）">
+    <Card title="标签（可编辑，对应 WhatsApp label）">
       <div className="flex flex-wrap gap-2">
         {customer.tags.length === 0 && (
           <p className="text-sm text-slate-400">暂无标签</p>
         )}
         {customer.tags.map((t) => (
-          <span key={t.tagId} className="group inline-flex items-center gap-1">
-            <button
-              onClick={() => toggleSync(t.tagId, !t.syncedToWa)}
-              title={t.syncedToWa ? "已同步，点击标记为未同步" : "未同步到 WhatsApp，点击标记已同步"}
-            >
-              <TagBadge name={t.tag.name} color={t.tag.color} synced={t.syncedToWa} />
-            </button>
-            <button
-              onClick={() => remove(t.tagId)}
-              className="text-xs text-slate-300 hover:text-red-500"
-            >
-              ×
-            </button>
-          </span>
+          <div key={t.tagId} className="flex flex-col gap-1">
+            {editingId === t.tagId ? (
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-2">
+                <input
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  className="mb-1 w-full rounded border border-slate-300 px-2 py-1 text-xs"
+                />
+                <div className="flex items-center gap-2">
+                  <input
+                    type="color"
+                    value={editColor}
+                    onChange={(e) => setEditColor(e.target.value)}
+                    className="h-7 w-10 cursor-pointer rounded border border-slate-200"
+                  />
+                  <button
+                    onClick={() => saveTagEdit(t.tagId)}
+                    className="text-xs text-brand-dark hover:underline"
+                  >
+                    保存
+                  </button>
+                  <button
+                    onClick={() => setEditingId(null)}
+                    className="text-xs text-slate-400"
+                  >
+                    取消
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <span className="group inline-flex items-center gap-1">
+                <button
+                  onClick={() => toggleSync(t.tagId, !t.syncedToWa)}
+                  title={t.syncedToWa ? "已同步，点击标记为未同步" : "未同步到 WhatsApp，点击标记已同步"}
+                >
+                  <TagBadge name={t.tag.name} color={t.tag.color} synced={t.syncedToWa} />
+                </button>
+                <button
+                  onClick={() => {
+                    setEditingId(t.tagId);
+                    setEditName(t.tag.name);
+                    setEditColor(t.tag.color ?? "#64748b");
+                  }}
+                  className="text-xs text-slate-400 hover:text-brand-dark"
+                  title="编辑标签"
+                >
+                  ✎
+                </button>
+                <button
+                  onClick={() => remove(t.tagId)}
+                  className="text-xs text-slate-300 hover:text-red-500"
+                  title="从该客户移除"
+                >
+                  ×
+                </button>
+              </span>
+            )}
+          </div>
         ))}
       </div>
       <div className="mt-3 flex gap-2">
@@ -383,7 +470,7 @@ function TagsCard({
         </button>
       </div>
       <p className="mt-2 text-[11px] text-slate-400">
-        实心圆点 = 已同步到 WhatsApp Web；空心 = 待同步。
+        点击 ✎ 可改标签名和颜色；× 仅从该客户移除。实心圆点 = 已同步 WhatsApp。
       </p>
     </Card>
   );

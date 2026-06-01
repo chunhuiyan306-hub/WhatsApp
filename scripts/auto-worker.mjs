@@ -1,10 +1,8 @@
 /**
  * 自动化 Worker：按每日时间表扫 WhatsApp（默认 10:00、15:00）
- *
- * 用法: npm run auto
- * 环境: HUB_URL=http://localhost:3000
  */
 import { scanWhatsAppOnce } from "./wa-auto-scan.mjs";
+import { loadLocalEnv } from "./load-env.mjs";
 import {
   parseSchedule,
   currentSlotKey,
@@ -13,7 +11,59 @@ import {
   DEFAULT_SCHEDULE,
 } from "./schedule-utils.mjs";
 
+loadLocalEnv();
+
 const HUB = process.env.HUB_URL || "http://localhost:3000";
+const STARTUP_SCAN_HOURS = Number(process.env.STARTUP_SCAN_HOURS || 3);
+
+async function clearStaleRunning(state) {
+  if (state?.lastScanStatus !== "running" || !state?.lastScanAt) return state;
+  const mins = (Date.now() - new Date(state.lastScanAt).getTime()) / 60000;
+  if (mins <= 25) return state;
+  console.warn(`[auto-worker] 上次扫描 ${Math.round(mins)} 分钟前仍为 running，已重置`);
+  await patchState({
+    lastScanStatus: "error",
+    lastScanSummary: "扫描超时未完成（>25min），已自动重置，可重新扫描",
+  });
+  return { ...state, lastScanStatus: "error" };
+}
+
+async function startupCatchUp(state) {
+  if (process.env.AUTO_SCAN_ON_START === "0") {
+    console.log("[auto-worker] AUTO_SCAN_ON_START=0，跳过启动补扫");
+    return;
+  }
+  state = await clearStaleRunning(state);
+  if (state?.lastScanStatus === "running") {
+    console.log("[auto-worker] 扫描进行中，跳过启动补扫");
+    return;
+  }
+  const last = state?.lastScanAt ? new Date(state.lastScanAt) : null;
+  const hoursSince = last ? (Date.now() - last.getTime()) / 3600000 : 999;
+  if (hoursSince < STARTUP_SCAN_HOURS) {
+    console.log(
+      `[auto-worker] 距上次扫描 ${hoursSince.toFixed(1)}h，跳过启动补扫（阈值 ${STARTUP_SCAN_HOURS}h）`
+    );
+    return;
+  }
+  console.log(`[auto-worker] 启动补扫：距上次扫描 ${hoursSince.toFixed(1)}h…`);
+  try {
+    await patchState({
+      lastScanStatus: "running",
+      lastScanSummary: "Worker 启动自动补扫…",
+    });
+    const result = await scanWhatsAppOnce();
+    if (!result.ok) {
+      await patchState({
+        lastScanStatus: "error",
+        lastScanSummary: result.reason ?? "启动补扫失败",
+      });
+    }
+  } catch (e) {
+    console.error("[auto-worker] 启动补扫失败:", e.message);
+    await patchState({ lastScanStatus: "error", lastScanSummary: e.message });
+  }
+}
 
 async function getState() {
   try {
@@ -50,6 +100,10 @@ function shouldRunNow(state) {
 async function loop() {
   console.log(`[auto-worker] hub=${HUB}`);
   console.log(`[auto-worker] 模式：每日定点扫描（默认 10:00、15:00 本地时间）`);
+  console.log(`[auto-worker] 完整流程：WhatsApp → 流水线 → LinkedIn（扫描脚本内置）`);
+
+  const initial = await clearStaleRunning(await getState());
+  await startupCatchUp(initial);
 
   while (true) {
     const state = await getState();

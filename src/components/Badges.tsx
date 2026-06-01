@@ -1,4 +1,4 @@
-import { statusLabel, statusColor, inquiryLabel } from "@/lib/constants";
+import { statusLabel, statusColor, inquiryLabel, dealStageLabel, dealStageColor } from "@/lib/constants";
 
 export function StatusBadge({ status }: { status: string }) {
   const color = statusColor(status);
@@ -16,6 +16,18 @@ export function InquiryBadge({ type }: { type: string }) {
   return (
     <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
       {inquiryLabel(type)}
+    </span>
+  );
+}
+
+export function DealStageBadge({ stage }: { stage: string }) {
+  const color = dealStageColor(stage);
+  return (
+    <span
+      className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium"
+      style={{ backgroundColor: `${color}1a`, color }}
+    >
+      {dealStageLabel(stage)}
     </span>
   );
 }

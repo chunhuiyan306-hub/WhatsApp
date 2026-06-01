@@ -60,3 +60,50 @@ export function looksRtl(text?: string | null): boolean {
   if (!text) return false;
   return /[\u0590-\u05FF\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]/.test(text);
 }
+
+// 商机阶段（销售漏斗）
+export const DEAL_STAGES = [
+  { value: "inquiry", label: "初次询价", color: "#3b82f6" },
+  { value: "quoted", label: "已报价", color: "#8b5cf6" },
+  { value: "sample", label: "样品阶段", color: "#06b6d4" },
+  { value: "negotiating", label: "谈判中", color: "#f59e0b" },
+  { value: "won", label: "已成交", color: "#10b981" },
+  { value: "lost", label: "已流失", color: "#6b7280" },
+] as const;
+
+export function dealStageLabel(value?: string | null): string {
+  return DEAL_STAGES.find((s) => s.value === value)?.label ?? value ?? "初次询价";
+}
+
+export function dealStageColor(value?: string | null): string {
+  return DEAL_STAGES.find((s) => s.value === value)?.color ?? "#6b7280";
+}
+
+// 客户来源
+export const LEAD_SOURCES = [
+  { value: "whatsapp", label: "WhatsApp" },
+  { value: "instagram", label: "Instagram" },
+  { value: "facebook", label: "Facebook" },
+  { value: "exhibition", label: "展会" },
+  { value: "alibaba", label: "阿里国际站" },
+  { value: "referral", label: "转介绍" },
+  { value: "other", label: "其它" },
+] as const;
+
+export function leadSourceLabel(value?: string | null): string {
+  return LEAD_SOURCES.find((s) => s.value === value)?.label ?? value ?? "—";
+}
+
+// 跟进记录类型
+export const ACTIVITY_TYPES = [
+  { value: "note", label: "备注" },
+  { value: "follow_up", label: "跟进" },
+  { value: "quote", label: "报价" },
+  { value: "call", label: "电话" },
+  { value: "email", label: "邮件" },
+  { value: "stage_change", label: "阶段变更" },
+] as const;
+
+export function activityTypeLabel(value?: string | null): string {
+  return ACTIVITY_TYPES.find((t) => t.value === value)?.label ?? value ?? "记录";
+}

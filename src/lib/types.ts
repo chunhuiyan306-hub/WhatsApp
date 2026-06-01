@@ -41,6 +41,14 @@ export interface Enrichment {
   createdAt: string;
 }
 
+export interface CustomerActivity {
+  id: string;
+  type: string;
+  title: string;
+  content?: string | null;
+  createdAt: string;
+}
+
 export interface ReplyDraft {
   id: string;
   draftZh: string;
@@ -72,12 +80,28 @@ export interface Customer {
   status: string;
   summary?: string | null;
   notes?: string | null;
+  companyName?: string | null;
+  jobTitle?: string | null;
+  email?: string | null;
+  website?: string | null;
+  address?: string | null;
+  productInterest?: string | null;
+  quantity?: string | null;
+  estimatedBudget?: string | null;
+  expectedDelivery?: string | null;
+  dealStage?: string;
+  nextFollowUpAt?: string | null;
+  assignedTo?: string | null;
+  leadSource?: string | null;
+  quoteAmount?: string | null;
+  orderAmount?: string | null;
   firstContact: string;
   lastContact: string;
   tags: TagOnCustomer[];
   inquiries: Inquiry[];
   messages?: Message[];
   enrichments?: Enrichment[];
+  activities?: CustomerActivity[];
   drafts?: ReplyDraft[];
   _count?: { messages: number; drafts: number };
 }

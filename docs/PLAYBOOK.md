@@ -1,6 +1,6 @@
 # Agent 操作手册（Playbook）
 
-本手册定义自动化工作流。系统默认 **全自动**：WhatsApp 扫描 → ingest → 翻译 → 分类 → 标签 → 背景调查 → 草稿。
+本手册定义自动化工作流。系统默认 **全自动**：WhatsApp 扫描 → ingest → 翻译 → 分类 → 标签 → 背景调查 → **LinkedIn/公开资料检索** → 草稿。
 
 看板地址：`http://localhost:3000` · 自动化页：`/automation`
 
@@ -15,7 +15,8 @@ flowchart LR
   P --> T[翻译]
   P --> C[分类+标签]
   P --> E[背景调查]
-  P --> D[回复草稿 pending]
+  E --> L[LinkedIn/公开检索]
+  L --> D[回复草稿 pending]
   D --> U[你在看板编辑/确认]
   U --> A[Agent 发送 approved 草稿]
 ```
@@ -37,6 +38,7 @@ flowchart LR
 | 分类 | catalog / project / quote / other（关键词） |
 | 标签 | 国家、意向、来源、待同步等 |
 | 背景 | 已知资料库 + 行业推断，`verified=false` |
+| LinkedIn | 扫描结束后自动 `POST /api/research/linkedin`（DuckDuckGo 检索，需人工核实） |
 | 草稿 | 按语言模板生成 `pending`（跳过内部/同行/未同步/餐饮误点） |
 
 传 `auto: false` 可跳过 Pipeline（仅 raw ingest）。
@@ -73,13 +75,31 @@ flowchart LR
 |------|------|------|
 | POST | `/api/ingest` | 写入 + 自动 Pipeline |
 | POST | `/api/pipeline/run` | `{ "all": true }` 或 `{ "customerId": "..." }` |
-| GET/PATCH/POST | `/api/automation` | 状态 / 开关 / 触发 pipeline-all |
+| GET/PATCH/POST | `/api/automation` | 状态 / 开关 / scan-once / pipeline-all / enrich-all |
+| POST | `/api/research/linkedin` | `{ "customerIds": [...] }` 或 `{ "all": true }` |
 | PATCH | `/api/drafts/{id}` | 编辑草稿 / 改状态 |
 
 ---
 
 ## 常用指令（对话触发，等价于 Worker）
 
-- 「扫一遍新消息」→ 等同 `auto:scan-once`
+- 「扫一遍新消息」→ 等同 `auto:scan-once`（含 LinkedIn 检索）
 - 「跑一遍全流程」→ pipeline-all
+- 「补跑 LinkedIn 背景」→ `npm run research:linkedin` 或 enrich-all
 - 「把已确认的发出去」→ 发送 approved 草稿
+
+---
+
+## 云端团队版 · 扫描机 SOP
+
+**你（admin）的电脑常开，同事只看 Vercel 看板。**
+
+1. 配置 `.env.scanner`（见 `.env.scanner.example`）：
+   - `HUB_URL=https://你的项目.vercel.app`
+   - `INGEST_SECRET=` 与 Vercel 环境变量一致
+2. 运行 `npm run hub`（看板本地 + Worker，或仅 Worker 连线上）
+3. Chrome 保持 WhatsApp 登录，勿退出
+4. 故障：查 `.wa-scan.log`、线上 `/automation`
+5. Clerk：你在 Dashboard 设 `publicMetadata.role=admin`；同事邀请后默认 sales
+
+部署步骤见 [DEPLOY.md](DEPLOY.md) · [CLOUD-PLAN.md](CLOUD-PLAN.md)

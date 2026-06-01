@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { ok, fail, parseBody } from "@/lib/api";
 import { analyzePhone } from "@/lib/phone";
+import { requireApiUser } from "@/lib/user-role";
 import type { Prisma } from "@prisma/client";
 
 // GET /api/customers?q=&status=&country=&tag=&inquiry=
@@ -11,6 +12,7 @@ export async function GET(req: Request) {
   const country = searchParams.get("country")?.trim();
   const tag = searchParams.get("tag")?.trim();
   const inquiry = searchParams.get("inquiry")?.trim();
+  const dealStage = searchParams.get("dealStage")?.trim();
 
   const where: Prisma.CustomerWhereInput = {};
   if (q) {
@@ -20,10 +22,13 @@ export async function GET(req: Request) {
       { rawPhone: { contains: q } },
       { waChatId: { contains: q } },
       { summary: { contains: q } },
+      { companyName: { contains: q } },
+      { productInterest: { contains: q } },
     ];
   }
   if (status) where.status = status;
   if (country) where.country = country;
+  if (dealStage) where.dealStage = dealStage;
   if (tag) where.tags = { some: { tag: { name: tag } } };
   if (inquiry) where.inquiries = { some: { type: inquiry } };
 
@@ -50,6 +55,10 @@ export async function POST(req: Request) {
     status?: string;
     summary?: string;
     notes?: string;
+    companyName?: string;
+    leadSource?: string;
+    dealStage?: string;
+    email?: string;
   }>(req);
 
   if (!body.phone && !body.waChatId && !body.name) {
@@ -57,6 +66,8 @@ export async function POST(req: Request) {
   }
 
   const info = analyzePhone(body.phone);
+  const waChatId =
+    body.waChatId ?? (body.phone ? body.phone.replace(/\s/g, "") : body.name ?? null);
 
   const data = {
     name: body.name ?? null,
@@ -66,10 +77,14 @@ export async function POST(req: Request) {
     countryCode: info.countryCode,
     callingCode: info.callingCode,
     language: body.language ?? null,
-    waChatId: body.waChatId ?? null,
+    waChatId,
     status: body.status ?? "new",
     summary: body.summary ?? null,
     notes: body.notes ?? null,
+    companyName: body.companyName ?? null,
+    leadSource: body.leadSource ?? "other",
+    dealStage: body.dealStage ?? "inquiry",
+    email: body.email ?? null,
     lastContact: new Date(),
   };
 
@@ -78,7 +93,8 @@ export async function POST(req: Request) {
     where: {
       OR: [
         info.e164 ? { phone: info.e164 } : undefined,
-        body.waChatId ? { waChatId: body.waChatId } : undefined,
+        waChatId ? { waChatId } : undefined,
+        body.name ? { name: body.name } : undefined,
       ].filter(Boolean) as Prisma.CustomerWhereInput[],
     },
   });
@@ -95,10 +111,30 @@ export async function POST(req: Request) {
           country: data.country ?? existing.country,
           countryCode: data.countryCode ?? existing.countryCode,
           callingCode: data.callingCode ?? existing.callingCode,
+          companyName: data.companyName ?? existing.companyName,
+          leadSource: data.leadSource ?? existing.leadSource,
+          dealStage: data.dealStage ?? existing.dealStage,
+          email: data.email ?? existing.email,
+          waChatId: data.waChatId ?? existing.waChatId,
           lastContact: new Date(),
         },
       })
     : await prisma.customer.create({ data });
 
   return ok(customer, existing ? 200 : 201);
+}
+
+// DELETE /api/customers  批量删除 { "ids": ["..."] }
+export async function DELETE(req: Request) {
+  const user = await requireApiUser({ adminOnly: true });
+  if (!user.ok) return fail(user.error, user.status);
+
+  const body = await parseBody<{ ids?: string[] }>(req);
+  if (!body.ids?.length) return fail("ids 必填");
+
+  const result = await prisma.customer.deleteMany({
+    where: { id: { in: body.ids } },
+  });
+
+  return ok({ deleted: result.count });
 }

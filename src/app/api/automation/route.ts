@@ -6,6 +6,7 @@ import {
   formatScheduleLabel,
   parseSchedule,
 } from "@/lib/schedule";
+import { requireApiUser } from "@/lib/user-role";
 
 const DEFAULT_STATE = {
   id: "default",
@@ -27,6 +28,22 @@ export async function GET() {
 
   if (!state) {
     state = await prisma.automationState.create({ data: DEFAULT_STATE });
+  }
+
+  // 超过 25 分钟仍为 running → 视为卡死，自动重置
+  if (state.lastScanStatus === "running" && state.lastScanAt) {
+    const mins =
+      (Date.now() - new Date(state.lastScanAt).getTime()) / 60000;
+    if (mins > 25) {
+      state = await prisma.automationState.update({
+        where: { id: "default" },
+        data: {
+          lastScanStatus: "error",
+          lastScanSummary:
+            "扫描超时未完成（>25min），已自动重置。请重新点击扫描或运行 npm run auto:scan-once",
+        },
+      });
+    }
   }
 
   const nextScanAt = getNextScanAt(state.scanSchedule);
@@ -97,9 +114,93 @@ export async function PATCH(req: Request) {
   return ok(state);
 }
 
-/** POST /api/automation  触发流水线（不扫 WA，仅处理已有客户） */
+/** POST /api/automation  触发扫描或流水线 */
 export async function POST(req: Request) {
-  const body = await parseBody<{ action?: string }>(req);
+  const user = await requireApiUser({ adminOnly: true });
+  if (!user.ok) return fail(user.error, user.status);
+
+  const body = await parseBody<{
+    action?: string;
+    customerIds?: string[];
+  }>(req);
+
+  if (body.action === "scan-once") {
+    const { logAutomation } = await import("@/lib/pipeline");
+    let state = await prisma.automationState.findUnique({
+      where: { id: "default" },
+    });
+
+    // 卡死的 running 状态允许重新触发
+    if (state?.lastScanStatus === "running" && state.lastScanAt) {
+      const mins =
+        (Date.now() - new Date(state.lastScanAt).getTime()) / 60000;
+      if (mins <= 25) {
+        return fail("扫描正在进行中，请稍候（或查看弹出的 Chrome 窗口）");
+      }
+      state = await prisma.automationState.update({
+        where: { id: "default" },
+        data: {
+          lastScanStatus: "error",
+          lastScanSummary: "上次扫描超时，正在重新启动…",
+        },
+      });
+    }
+
+    await prisma.automationState.upsert({
+      where: { id: "default" },
+      update: {
+        lastScanStatus: "running",
+        lastScanSummary: "看板手动触发，正在启动浏览器…",
+        lastScanAt: new Date(),
+      },
+      create: {
+        ...DEFAULT_STATE,
+        lastScanStatus: "running",
+        lastScanSummary: "看板手动触发，正在启动浏览器…",
+        lastScanAt: new Date(),
+      },
+    });
+    await logAutomation("scan", "running", "看板手动触发 WhatsApp 扫描");
+
+    const { spawn } = await import("node:child_process");
+    const { openSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const script = join(process.cwd(), "scripts", "wa-auto-scan.mjs");
+    const logPath = join(process.cwd(), ".wa-scan.log");
+
+    try {
+      const logFd = openSync(logPath, "a");
+      const child = spawn(
+        process.execPath,
+        [script, "--keep-open"],
+        {
+          cwd: process.cwd(),
+          detached: true,
+          stdio: ["ignore", logFd, logFd],
+          env: {
+            ...process.env,
+            HUB_URL: process.env.HUB_URL ?? "http://localhost:3000",
+          },
+        }
+      );
+      child.unref();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      await logAutomation("scan", "error", `启动扫描失败：${msg}`);
+      await prisma.automationState.update({
+        where: { id: "default" },
+        data: { lastScanStatus: "error", lastScanSummary: msg },
+      });
+      return fail(msg);
+    }
+
+    return ok({
+      message:
+        "扫描已启动：请查看弹出的 Chrome 窗口（非 Cursor 浏览器）。日志见 .wa-scan.log",
+      logFile: ".wa-scan.log",
+    });
+  }
+
   if (body.action === "pipeline-all") {
     const { runPipelineBatch, logAutomation } = await import("@/lib/pipeline");
     const results = await runPipelineBatch();
@@ -108,5 +209,36 @@ export async function POST(req: Request) {
     await logAutomation("pipeline", "success", summary);
     return ok({ results, summary });
   }
-  return fail("未知 action，可用: pipeline-all");
+
+  if (body.action === "enrich-all") {
+    const { runPipelineBatch, logAutomation } = await import("@/lib/pipeline");
+    const ids = body.customerIds?.length ? body.customerIds : undefined;
+    const results = await runPipelineBatch(ids);
+    const enriched = results.filter((r) => r.enrichmentCreated).length;
+
+    let researchSummary = "";
+    try {
+      const researchRes = await fetch(
+        new URL("/api/research/linkedin", req.url).toString(),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(
+            ids?.length ? { customerIds: ids } : { all: true }
+          ),
+        }
+      );
+      const researchJson = await researchRes.json();
+      researchSummary = researchJson.data?.summary ?? "";
+    } catch (e) {
+      researchSummary =
+        e instanceof Error ? e.message : "LinkedIn 检索未执行";
+    }
+
+    const summary = `背景调查：Pipeline ${results.length} 人（新建背景 ${enriched}）；${researchSummary}`;
+    await logAutomation("research", "success", summary);
+    return ok({ results, summary });
+  }
+
+  return fail("未知 action，可用: scan-once, pipeline-all, enrich-all");
 }

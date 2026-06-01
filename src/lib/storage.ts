@@ -1,6 +1,9 @@
 import { writeFile, mkdir } from "fs/promises";
 import { join } from "path";
 import { randomUUID } from "crypto";
+import { parseAssetIds, parseAttachments, type AttachmentMeta } from "./attachments";
+
+export { parseAssetIds, parseAttachments, type AttachmentMeta };
 
 const UPLOAD_DIR = join(process.cwd(), "public", "uploads");
 
@@ -33,31 +36,4 @@ export async function saveUploadedFile(
     mimeType,
     fileSize,
   };
-}
-
-export function parseAssetIds(json?: string | null): string[] {
-  if (!json) return [];
-  try {
-    const arr = JSON.parse(json) as unknown;
-    return Array.isArray(arr) ? arr.map(String) : [];
-  } catch {
-    return [];
-  }
-}
-
-export interface AttachmentMeta {
-  id: string;
-  name: string;
-  url: string;
-  category: string;
-}
-
-export function parseAttachments(json?: string | null): AttachmentMeta[] {
-  if (!json) return [];
-  try {
-    const arr = JSON.parse(json) as AttachmentMeta[];
-    return Array.isArray(arr) ? arr : [];
-  } catch {
-    return [];
-  }
 }

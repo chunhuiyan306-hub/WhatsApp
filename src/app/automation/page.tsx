@@ -73,6 +73,37 @@ export default function AutomationPage() {
     });
   }
 
+  async function scanWhatsAppNow() {
+    setRunning(true);
+    const res = await fetch("/api/automation", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "scan-once" }),
+    });
+    const json = await res.json();
+    if (!json.ok) {
+      alert(json.error || "启动扫描失败");
+      setRunning(false);
+      load();
+      return;
+    }
+
+    const deadline = Date.now() + 5 * 60 * 1000;
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 2000));
+      const statusRes = await fetch("/api/automation");
+      const statusJson = await statusRes.json();
+      if (statusJson.ok) {
+        setState(statusJson.data.state);
+        setLogs(statusJson.data.logs ?? []);
+        const status = statusJson.data.state?.lastScanStatus;
+        if (status && status !== "running") break;
+      }
+    }
+    setRunning(false);
+    load();
+  }
+
   async function runPipelineAll() {
     setRunning(true);
     await fetch("/api/automation", {
@@ -93,7 +124,19 @@ export default function AutomationPage() {
       <div>
         <h1 className="text-2xl font-bold text-slate-900">自动化工作流</h1>
         <p className="mt-1 text-sm text-slate-500">
-          WhatsApp 每日定点扫描 → 翻译 → 分类 → 标签 → 背景 → 草稿
+          WhatsApp 扫描 → 翻译 → 分类 → 标签 → LinkedIn 背景 → 草稿（全自动，无需每次提醒 Agent）
+        </p>
+      </div>
+
+      <div className="rounded-xl border border-brand/30 bg-brand/5 p-4 text-sm text-slate-700">
+        <p className="font-semibold text-brand-deep">推荐：一条命令搞定</p>
+        <p className="mt-1">
+          终端运行{" "}
+          <code className="rounded bg-white px-1.5 py-0.5 font-mono text-xs">
+            npm run hub
+          </code>
+          — 同时启动看板 + 定时 Worker + <strong>启动时自动补扫</strong>（距上次 &gt;3 小时）。
+          每天 10:00、15:00 还会再扫一次。
         </p>
       </div>
 
@@ -101,9 +144,9 @@ export default function AutomationPage() {
         <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
           <h2 className="text-sm font-semibold text-slate-700">WhatsApp 扫描计划</h2>
           <p className="mt-2 text-sm text-slate-500">
-            终端保持运行{" "}
-            <code className="rounded bg-slate-100 px-1">npm run auto</code>
-            ，到点自动扫未读（使用你电脑<strong>本地时间</strong>）。
+            保持{" "}
+            <code className="rounded bg-slate-100 px-1">npm run hub</code>{" "}
+            窗口常开（可最小化），到点自动扫<strong>最近 30 个会话</strong>（各 10 条消息）。
           </p>
 
           <div className="mt-4 flex items-center gap-3">
@@ -181,24 +224,30 @@ export default function AutomationPage() {
         <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
           <h2 className="text-sm font-semibold text-slate-700">立即执行</h2>
           <p className="mt-2 text-sm text-slate-500">
-            不等定时，马上扫一轮 WhatsApp 或重跑流水线。
+            马上扫描 WhatsApp <strong>最近 30 个会话</strong>（各 10 条）→ 自动流水线 → LinkedIn 背景。
           </p>
           <div className="mt-4 flex flex-wrap gap-2">
             <button
-              onClick={runPipelineAll}
+              onClick={scanWhatsAppNow}
               disabled={running}
               className="rounded-md bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand-dark disabled:opacity-50"
             >
-              {running ? "运行中…" : "重跑全流程（不扫 WA）"}
+              {running ? "扫描中…" : "立即扫描 WhatsApp"}
+            </button>
+            <button
+              onClick={runPipelineAll}
+              disabled={running}
+              className="rounded-md border border-slate-300 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            >
+              仅重跑流水线
             </button>
           </div>
-          <p className="mt-3 text-xs text-slate-400">
-            立即扫 WhatsApp：终端执行{" "}
-            <code className="rounded bg-slate-100 px-1">npm run auto:scan-once</code>
+          <p className="mt-3 text-xs text-amber-700">
+            扫描会<strong>弹出独立 Chrome 窗口</strong>（不是 Cursor 侧边栏）。首次需扫码登录。
+            日志文件：<code className="rounded bg-white px-1">.wa-scan.log</code>
           </p>
-          <p className="mt-2 text-xs text-amber-700">
-            请保持 <code>npm run auto</code> 窗口常开（可最小化），电脑需在
-            10:00、15:00 处于开机状态。
+          <p className="mt-2 text-xs text-slate-500">
+            状态卡在 running 超过 25 分钟会自动重置，可再次点击扫描。
           </p>
         </div>
       </div>

@@ -1,80 +1,82 @@
 # 部署到 GitHub + Vercel（团队共享看板）
 
-同事访问线上看板；WhatsApp 自动扫描仍在你本机运行（`npm run auto`）。
+同事通过 **Clerk 登录**访问线上看板；WhatsApp 扫描在你本机运行（`npm run hub`）。
 
-## 1. 推送到 GitHub
+## 快速清单
+
+### 1. GitHub
 
 ```bash
-git init
 git add .
-git commit -m "Initial commit: WhatsApp customer hub"
-git branch -M main
-git remote add origin https://github.com/你的用户名/whatsapp-customer-hub.git
-git push -u origin main
+git commit -m "feat: cloud team deployment with Postgres, Clerk, ingest secret"
+git push origin main
 ```
 
-`.gitignore` 已排除：`.env`、`*.db`、`.wa-browser-data/`、`public/uploads/*`
+### 2. Vercel 资源
 
-## 2. Vercel 部署
-
-1. 打开 [vercel.com](https://vercel.com) → Import Git Repository → 选你的 GitHub 仓库
-2. Framework Preset：**Next.js**（自动识别）
-3. 添加 **Postgres 数据库**（推荐 Neon，Vercel Marketplace 一键添加）
-4. 添加 **Blob 存储**（上传 PDF 画册用，Vercel Dashboard → Storage → Blob）
-5. 环境变量（**缺一不可，否则构建失败 P1012**）：
+1. [vercel.com](https://vercel.com) → Import → `chunhuiyan306-hub/WhatsApp`
+2. **Storage → Neon Postgres** → 关联项目
+3. **Storage → Blob** → 创建并关联
+4. **Integrations → Clerk** → 安装并关联项目
+5. 环境变量确认：
 
 | 变量 | 说明 |
 |------|------|
-| `DATABASE_URL` | Prisma 用；Neon 集成后若只有 `POSTGRES_URL`，构建脚本会自动映射 |
-| `POSTGRES_URL` | Neon 一键集成后自动注入（可代替手动填 DATABASE_URL） |
-| `BLOB_READ_WRITE_TOKEN` | Vercel Blob Token（上传 PDF 用，可选但推荐） |
+| `DATABASE_URL` | Neon 连接串（或 `POSTGRES_URL`，构建脚本会自动映射） |
+| `BLOB_READ_WRITE_TOKEN` | Blob 上传 PDF |
+| `INGEST_SECRET` | 扫描机密钥（随机长串，与 `.env.scanner` 一致） |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Clerk 自动注入 |
+| `CLERK_SECRET_KEY` | Clerk 自动注入 |
+| `NEXT_PUBLIC_CLERK_SIGN_IN_URL` | `/sign-in` |
+| `NEXT_PUBLIC_CLERK_SIGN_UP_URL` | `/sign-up` |
 
-**操作路径：** Vercel 项目 → **Storage** → **Connect Database** → **Neon** → 勾选关联到 `whats-app` 项目 → 保存后 **Redeploy**。
+6. Redeploy 直到构建成功
 
-若已连 Neon 仍报错，到 **Settings → Environment Variables** 手动新增：
+构建命令（[vercel.json](vercel.json)）：`node scripts/vercel-build.mjs`
 
-- Name: `DATABASE_URL`
-- Value: 复制同页里的 `POSTGRES_URL` 或 `POSTGRES_PRISMA_URL` 的值
-- 勾选 Production、Preview、Development
+### 3. Clerk 角色
 
-6. **重要**：仓库已使用 **PostgreSQL**。在 Vercel 添加 **Neon Postgres** 后，`DATABASE_URL` 会自动注入；未配置数据库时构建会在 `prisma migrate deploy` 阶段失败。
+Clerk Dashboard → Users → 你的账号 → Public metadata:
 
-7. Build Command（Vercel 项目设置，`vercel.json` 已配置）：
-
-```bash
-npx prisma migrate deploy && npm run build
+```json
+{ "role": "admin" }
 ```
 
-8. Deploy 完成后，在 Vercel 终端或本地对生产库执行一次 seed（可选）：
+同事邀请后默认 `sales`（无 metadata 即为 sales）。
 
-```bash
-DATABASE_URL="postgres://..." npx tsx prisma/seed.ts
-```
+### 4. 本机扫描机
 
-## 3. 本地 vs 线上
+复制 [.env.scanner.example](.env.scanner.example) 为 `.env.scanner`：
 
-| 功能 | 本地 | Vercel 线上 |
-|------|------|-------------|
-| 看板 / 客户 / 草稿 | ✅ | ✅ 同事可访问 |
-| 话术模板 / 资料库 | ✅ | ✅ 共享 |
-| PDF 存储 | `public/uploads/` | Vercel Blob |
-| WhatsApp 自动扫描 | `npm run auto` | ❌ 需本机 Worker |
-| 数据库 | Postgres（Neon 或本地） | Postgres（团队共享） |
-
-## 4. 本机 Worker 连线上看板
-
-若希望扫描结果写入**线上**数据库而非本地：
-
-```bash
-# .env.local（Worker 用）
+```env
 HUB_URL=https://你的项目.vercel.app
+INGEST_SECRET=与 Vercel 相同
 ```
 
-然后本机运行 `npm run auto`，ingest 会打到线上 API。
+运行（加载扫描机 env）：
 
-## 5. 话术 + PDF 工作流
+```powershell
+Get-Content .env.scanner | ForEach-Object { if ($_ -match '^([^#=]+)=(.*)$') { [Environment]::SetEnvironmentVariable($matches[1], $matches[2], 'Process') } }
+npm run hub
+```
 
-1. **资料库** `/assets`：上传产品画册 PDF
-2. **话术模板** `/templates`：写「要画册」「询价」等专属话术，勾选要附带的 PDF
-3. 自动扫描 / Pipeline 生成草稿时会用你的模板 + 绑定 PDF
-4. **回复草稿** `/drafts`：编辑 → 确认 → 对我说「发出去」（本机 WhatsApp 发送）
+### 5. 迁移本地 SQLite 数据（可选）
+
+Neon 空库 migrate deploy 后：
+
+```bash
+DATABASE_URL="postgresql://..." npm run migrate:sqlite-to-pg
+```
+
+---
+
+## 本地 vs 线上
+
+| 功能 | 本机扫描机 | Vercel 线上 |
+|------|-----------|-------------|
+| 看板 / 客户 / 草稿 | 通过 HUB_URL | 同事 Clerk 登录 |
+| WhatsApp 扫描 | Chrome + hub | 不支持 |
+| 数据库 | 写入 Neon | Neon 共享 |
+| PDF | Blob | Blob |
+
+详见 [CLOUD-PLAN.md](CLOUD-PLAN.md)

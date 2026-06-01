@@ -24,6 +24,22 @@ model Customer {
   status       String   @default("new") // new 新客 / contacted 已联系 / following 跟进中 / closed 已关闭
   summary      String? // 中文一句话画像
   notes        String? // 销售/跟单备注
+  // ── 客户档案（CRM 登记）──
+  companyName      String? // 公司全称
+  jobTitle         String? // 职位
+  email            String?
+  website          String?
+  address          String?
+  productInterest  String? // 意向产品/规格
+  quantity         String? // 数量
+  estimatedBudget  String? // 预算
+  expectedDelivery String? // 期望交期
+  dealStage        String   @default("inquiry") // inquiry/quoted/sample/negotiating/won/lost
+  nextFollowUpAt   DateTime? // 下次跟进
+  assignedTo       String? // 负责人
+  leadSource       String? // 来源渠道
+  quoteAmount      String? // 报价金额
+  orderAmount      String? // 成交金额
   firstContact DateTime @default(now())
   lastContact  DateTime @default(now())
   createdAt    DateTime @default(now())
@@ -34,6 +50,7 @@ model Customer {
   enrichments Enrichment[]
   drafts      ReplyDraft[]
   tags        TagOnCustomer[]
+  activities  CustomerActivity[]
 }
 
 // 消息：原文 + 中文翻译
@@ -175,5 +192,19 @@ model AutomationLog {
   detail    String?
   createdAt DateTime @default(now())
 
+  @@index([createdAt])
+}
+
+// 客户跟进记录（手动登记 + 关键节点）
+model CustomerActivity {
+  id         String   @id @default(cuid())
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  type       String // note / follow_up / quote / call / email / stage_change
+  title      String
+  content    String?
+  createdAt  DateTime @default(now())
+
+  @@index([customerId])
   @@index([createdAt])
 }

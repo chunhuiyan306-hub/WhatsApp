@@ -1,3 +1,5 @@
+-- PostgreSQL initial schema (team cloud deployment)
+
 -- CreateTable
 CREATE TABLE "Customer" (
     "id" TEXT NOT NULL,
@@ -12,6 +14,21 @@ CREATE TABLE "Customer" (
     "status" TEXT NOT NULL DEFAULT 'new',
     "summary" TEXT,
     "notes" TEXT,
+    "companyName" TEXT,
+    "jobTitle" TEXT,
+    "email" TEXT,
+    "website" TEXT,
+    "address" TEXT,
+    "productInterest" TEXT,
+    "quantity" TEXT,
+    "estimatedBudget" TEXT,
+    "expectedDelivery" TEXT,
+    "dealStage" TEXT NOT NULL DEFAULT 'inquiry',
+    "nextFollowUpAt" TIMESTAMP(3),
+    "assignedTo" TEXT,
+    "leadSource" TEXT,
+    "quoteAmount" TEXT,
+    "orderAmount" TEXT,
     "firstContact" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "lastContact" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -134,7 +151,7 @@ CREATE TABLE "MediaAsset" (
 
 -- CreateTable
 CREATE TABLE "AutomationState" (
-    "id" TEXT NOT NULL DEFAULT 'default',
+    "id" TEXT NOT NULL,
     "enabled" BOOLEAN NOT NULL DEFAULT true,
     "scanMode" TEXT NOT NULL DEFAULT 'schedule',
     "scanSchedule" TEXT NOT NULL DEFAULT '["10:00","15:00"]',
@@ -158,6 +175,18 @@ CREATE TABLE "AutomationLog" (
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "AutomationLog_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "CustomerActivity" (
+    "id" TEXT NOT NULL,
+    "customerId" TEXT NOT NULL,
+    "type" TEXT NOT NULL,
+    "title" TEXT NOT NULL,
+    "content" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "CustomerActivity_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateIndex
@@ -190,6 +219,12 @@ CREATE INDEX "MediaAsset_category_idx" ON "MediaAsset"("category");
 -- CreateIndex
 CREATE INDEX "AutomationLog_createdAt_idx" ON "AutomationLog"("createdAt");
 
+-- CreateIndex
+CREATE INDEX "CustomerActivity_customerId_idx" ON "CustomerActivity"("customerId");
+
+-- CreateIndex
+CREATE INDEX "CustomerActivity_createdAt_idx" ON "CustomerActivity"("createdAt");
+
 -- AddForeignKey
 ALTER TABLE "Message" ADD CONSTRAINT "Message_customerId_fkey" FOREIGN KEY ("customerId") REFERENCES "Customer"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
@@ -207,3 +242,6 @@ ALTER TABLE "Enrichment" ADD CONSTRAINT "Enrichment_customerId_fkey" FOREIGN KEY
 
 -- AddForeignKey
 ALTER TABLE "ReplyDraft" ADD CONSTRAINT "ReplyDraft_customerId_fkey" FOREIGN KEY ("customerId") REFERENCES "Customer"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "CustomerActivity" ADD CONSTRAINT "CustomerActivity_customerId_fkey" FOREIGN KEY ("customerId") REFERENCES "Customer"("id") ON DELETE CASCADE ON UPDATE CASCADE;

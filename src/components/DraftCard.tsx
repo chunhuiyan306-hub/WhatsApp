@@ -5,7 +5,7 @@ import Link from "next/link";
 import type { ReplyDraft } from "@/lib/types";
 import { formatDate } from "@/lib/types";
 import { draftStatusLabel, isRtlLang, looksRtl } from "@/lib/constants";
-import { parseAttachments } from "@/lib/storage";
+import { parseAttachments } from "@/lib/attachments";
 
 type Props = {
   draft: ReplyDraft;
